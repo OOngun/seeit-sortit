@@ -4,4 +4,3 @@ python-multipart
 pandas
 requests
 pydantic
-llama-cpp-python
