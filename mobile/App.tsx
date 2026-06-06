@@ -349,6 +349,25 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
   );
 }
 
+type ClassificationResult = {
+  status: string;
+  priority_score: number;
+  priority_band: string;
+  analysis: {
+    issue_type: string;
+    severity: number;
+    location: string;
+    description: string;
+    confidence: number;
+    raw_label: string;
+  };
+  enrichment: {
+    tfl_delay_factor: number;
+    population_density: number;
+    borough: string;
+  };
+};
+
 // ── Camera screen + classification drawer ───────────────────────────────
 function CameraScreen({
   onClassified,
@@ -360,6 +379,7 @@ function CameraScreen({
   const [phase, setPhase] = useState<'viewfinder' | 'analysing' | 'classified'>('viewfinder');
   const [flash, setFlash] = useState<'off' | 'on'>('off');
   const [hit, setHit] = useState<BoroughHit | null>(null);
+  const [apiResult, setApiResult] = useState<ClassificationResult | null>(null);
   const drawer = useRef(new Animated.Value(0)).current;
   const ringPulse = useRef(new Animated.Value(0)).current;
   const cameraRef = useRef<CameraView | null>(null);
@@ -392,23 +412,59 @@ function CameraScreen({
     ).start();
   }, [ringPulse]);
 
-  const runClassification = async (impact: Haptics.ImpactFeedbackStyle) => {
+  const runClassification = async (impact: Haptics.ImpactFeedbackStyle, photoUri?: string) => {
     Haptics.impactAsync(impact);
     setPhase('analysing');
-    const [resolved] = await Promise.all([
-      resolveBorough(),
-      new Promise(r => setTimeout(r, 1200)),
-    ]);
+    
+    const resolved = await resolveBorough();
     setHit(resolved);
+
+    let apiResponse: ClassificationResult | null = null;
+    if (photoUri) {
+      try {
+        const formData = new FormData();
+        formData.append('image', {
+          uri: photoUri,
+          name: 'photo.jpg',
+          type: 'image/jpeg',
+        } as any);
+
+        if (resolved) {
+          formData.append('borough', resolved.borough.name);
+        }
+
+        const res = await fetch('https://fixmy-council-seeit-sortit.loca.lt/analyse-report', {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        });
+        
+        if (res.ok) {
+          apiResponse = await res.json();
+        } else {
+          console.error("API error", await res.text());
+        }
+      } catch (err) {
+        console.error("Fetch error", err);
+      }
+    } else {
+      await new Promise(r => setTimeout(r, 1200));
+    }
+
+    setApiResult(apiResponse);
     setPhase('classified');
     Animated.spring(drawer, { toValue: 1, useNativeDriver: true, bounciness: 6 }).start();
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
   const onCapture = async () => {
+    let uri: string | undefined;
     try {
-      await cameraRef.current?.takePictureAsync({ quality: 0.6, skipProcessing: true });
+      const pic = await cameraRef.current?.takePictureAsync({ quality: 0.6, skipProcessing: true });
+      uri = pic?.uri;
     } catch { /* swallow — still run classification flow for the demo */ }
-    runClassification(Haptics.ImpactFeedbackStyle.Heavy);
+    runClassification(Haptics.ImpactFeedbackStyle.Heavy, uri);
   };
   const onPickLibrary = async () => {
     Haptics.selectionAsync();
@@ -419,8 +475,8 @@ function CameraScreen({
       quality: 0.7,
       exif: true,
     });
-    if (result.canceled) return;
-    runClassification(Haptics.ImpactFeedbackStyle.Light);
+    if (result.canceled || !result.assets[0].uri) return;
+    runClassification(Haptics.ImpactFeedbackStyle.Light, result.assets[0].uri);
   };
   const onRetake = () => {
     Haptics.selectionAsync();
@@ -545,26 +601,33 @@ function CameraScreen({
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
           <View style={{ width: 50, height: 50, borderRadius: 12, backgroundColor: p.greenChipBg,
                          alignItems: 'center', justifyContent: 'center' }}>
-            <CategoryIcon kind="pothole" size={26} color={p.green} />
+            <CategoryIcon kind={(apiResult?.analysis.issue_type as IconKey) || 'pothole'} size={26} color={p.green} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: p.ink, fontSize: 19, fontWeight: '800' }}>
-              Pothole <Text style={{ color: p.red }}>· High</Text>
+              {apiResult ? (apiResult.analysis.raw_label || apiResult.analysis.issue_type) : 'Pothole'} <Text style={{ color: p.red }}>· {apiResult ? apiResult.priority_band : 'High'}</Text>
             </Text>
             <Text style={{ color: p.inkDim, fontSize: 13, marginTop: 2 }}>
-              {hit
-                ? `${hit.borough.short_name} · ${hit.source === 'polygon' ? '96% confident' : `~${hit.distance_km.toFixed(1)} km from centroid`}`
-                : 'Location not available · using fallback'}
+              {apiResult ? `${Math.round(apiResult.analysis.confidence * 100)}% confident · Priority Score: ${apiResult.priority_score}` : (
+                hit
+                  ? `${hit.borough.short_name} · ${hit.source === 'polygon' ? '96% confident' : `~${hit.distance_km.toFixed(1)} km from centroid`}`
+                  : 'Location not available · using fallback'
+              )}
             </Text>
           </View>
         </View>
+        {apiResult?.analysis.description && (
+          <Text style={{ color: p.inkDim, fontSize: 14, marginTop: 12, fontStyle: 'italic' }}>
+            "{apiResult.analysis.description}"
+          </Text>
+        )}
         <View style={{ marginTop: 16, padding: 14, backgroundColor: p.cardDim, borderRadius: 10,
                        borderLeftWidth: 3, borderLeftColor: p.green }}>
           <Text style={{ color: p.ink, fontSize: 14, lineHeight: 20 }}>
             {hit ? (
               <>
                 Send to <Text style={{ fontWeight: '800' }}>
-                  {hit.borough.short_name} — {getDepartmentForCategory(hit.borough, 'pothole')}
+                  {hit.borough.short_name} — {getDepartmentForCategory(hit.borough, (apiResult?.analysis.issue_type as IconKey) || 'pothole')}
                 </Text>. We'll track it and tell you when it's fixed.
               </>
             ) : (
