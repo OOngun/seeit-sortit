@@ -1,0 +1,24 @@
+# Environments
+.env
+.venv
+venv/
+ENV/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDEs / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Project specific / Large binaries
+miniconda.sh
+*.gguf
+
+# Logs
+*.log

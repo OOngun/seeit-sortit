@@ -49,16 +49,42 @@ pip install -r requirements.txt
 
 ---
 
+## 🦙 Running the Local VLM (Ollama)
+
+Before starting the API, you must ensure the local Vision-Language Model is running via Ollama. The API relies on the custom model (e.g., `my-custom-model`) served locally. 
+
+1. Ensure Ollama is installed on your machine.
+2. In a separate terminal session or screen, start the Ollama server:
+   ```bash
+   ollama serve
+   ```
+3. The server automatically binds to `http://localhost:11434`. 
+   *(Note: The API is configured via the `.env` file's `VLM_API_URL` to point to this port. If the Ollama server is killed, the API will gracefully fall back to returning mock data until you restart `ollama serve`).*
+
+---
+
 ## 🚀 Running the API
 
-Once your virtual environment is active and dependencies are installed, you can start the local development server:
+Once your virtual environment is active, dependencies are installed, and Ollama is running in the background, you can start the local development server:
 
 ```bash
-uvicorn main:app --reload
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-- The API will be available at `http://localhost:8000`
+- The API will be available locally at `http://localhost:8000`, and to other devices on your network via your DGX Spark's IP address (e.g., `http://<YOUR_DGX_IP>:8000`).
 - You can access the interactive Swagger documentation and test the `/submit-report` endpoint by visiting `http://localhost:8000/docs`.
+
+## 🌍 Exposing the API to the Internet
+
+If you need to access the API from outside the local network (e.g., from your phone on 5G, or sharing with teammates remotely), you can easily tunnel port 8000 to the public internet using `localtunnel` (requires Node.js `npx`).
+
+1. Keep your `uvicorn` server running.
+2. In a new terminal tab on the DGX Spark, run:
+   ```bash
+   npx localtunnel --port 8000
+   ```
+3. It will generate a public URL (e.g., `https://some-random-words.loca.lt`).
+4. **Important:** When you first visit the URL in a browser, you will see a phishing protection screen. You must enter the **Endpoint IP** (the DGX Spark's external IP, e.g., `10.18.216.50`) as the password to access your server. Append `/docs` to the URL to access the Swagger UI from anywhere.
 
 ## 🧪 Testing the Endpoint
 You can test the `POST /submit-report` endpoint using the FastAPI interactive docs or `curl`:

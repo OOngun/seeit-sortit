@@ -1,4 +1,5 @@
 import requests
+import os
 from typing import Optional
 
 def get_tfl_delay_factor(app_key: Optional[str] = None) -> float:
@@ -8,8 +9,11 @@ def get_tfl_delay_factor(app_key: Optional[str] = None) -> float:
     """
     url = "https://api.tfl.gov.uk/Road/all/Disruption"
     params = {}
-    if app_key:
-        params["app_key"] = app_key
+    
+    resolved_key = app_key or os.getenv("TFL_APP_KEY")
+    if resolved_key:
+        params["app_key"] = resolved_key
+
 
     try:
         response = requests.get(url, params=params, timeout=5)
